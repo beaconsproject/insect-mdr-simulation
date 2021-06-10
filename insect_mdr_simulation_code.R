@@ -27,6 +27,10 @@ bFage <- bF
 bFage[!is.na(bFage)] <- sample (c(1:7), size=length(bFage[!is.na(bFage)]), replace=T)
 cell_area <- 1
 
+# viz maps
+plot(res)
+plot(bF)
+plot(bFage)
 
 # PROCESS INPUT DATA #################################################################
 
