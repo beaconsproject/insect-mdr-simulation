@@ -27,10 +27,6 @@ bFage <- bF
 bFage[!is.na(bFage)] <- sample (c(1:7), size=length(bFage[!is.na(bFage)]), replace=T)
 cell_area <- 1
 
-# viz maps
-plot(res)
-plot(bF)
-plot(bFage)
 
 # PROCESS INPUT DATA #################################################################
 
@@ -74,8 +70,6 @@ print(paste0("bF area in reserve: ", reserve_stand_area))
 
 reps <- 100 # how many times to repeat the simulation
 run_length <- 260 # how long the simulation runs in years
-p_outbreak <- 0.2 # set probability a cell experiences an outbreak
-p_mortality <- 0.9 # set probability a cell experiencing outbreak dies
 ob_freq <- 40 # set frequency of outbreaks in years
 
 
@@ -87,44 +81,37 @@ dir.create(stand_tables_Dir, recursive=TRUE)
 
 # In order to alter outbreak frequencies in the model we need to update age every time step and trigger outbreaks based on requested frequency
 landscape_dt <- as.data.table(landscape_df)
-ob_years <- seq(ob_freq, run_length, ob_freq) # make vector of years that will have outbreaks
+ob_years <- seq(20, run_length, ob_freq) # make vector of years that will have outbreaks
 
 for(r in 1:reps){
   if(r==1 | r%%10==0){print(r)}
   for(yr in seq(20, run_length, 20)){ # at each 20 year time step...
     
+    #print(yr)
+    
     # add new column
-    landscape_dt[[paste0("age_at_year_",yr)]] <- 999
+    landscape_dt$old_age <- landscape_dt[[paste0("age_at_year_",yr-20)]]
+    landscape_dt$new_age <- landscape_dt$old_age + 1
     
-    # age every stand into the next age class
-    landscape_dt[[paste0("age_at_year_",yr)]] <- apply(landscape_dt, 1, function(x){
-      x[[paste0("age_at_year_",yr-20)]] + 1
-    })
-    
-    # set any over mature stands to age class 1
-    landscape_dt[[paste0("age_at_year_",yr)]][landscape_dt[[paste0("age_at_year_",yr)]] > 6] <- 1 # using age class 6 as max age. Anything over 120 will die naturally.
-    
-    if(yr %in% ob_years){ # if current year is an outbreak year, trigger outbreak. For mortality stands, over ride the new age and return to age class 1.
+    if(yr %in% ob_years){ # if current year is an outbreak year, trigger outbreak. For outbreak stands, over ride the new age and return to age class 1.
       
-      # assign mortality to stands. Using apply here is faster than a loop
-      # first select whether a cell experiences outbreak
-      # if it does, test again to see if dies
-      landscape_dt[[paste0("age_at_year_",yr)]] <- apply(landscape_dt, 1, function(x){
-        r_1 <- runif(1, 0, 1) # generate a uniform random number
-        if(r_1 < p_outbreak){ # if the random number is less than the probability of experiencing outbreak, then the cell experiences the outbreak
-          r_2 <- runif(1, 0, 1) # generate a uniform random number
-          if(r_2 < p_mortality){ # if the second random number is less than the probability of mortality, the cell dies and age returns to 1
-            1
-          } else{
-            x[[paste0("age_at_year_",yr)]] # if cell survives the outbreak, age stays the same
-          }
-        } else{
-          x[[paste0("age_at_year_",yr)]] # if cell does not experience the outbreak, age stays the same
-        }
-      })
+      # set probability a cell experiencing outbreak dies. Randomly select between 0.78 and 0.89 based on mortality estimates from Ostaff and MacLean and MacLean 1980.
+      landscape_dt$p_mortality <- sample(c(seq(0.78, 0.89, 0.01)), size = nrow(landscape_dt), replace = TRUE)
+      landscape_dt$r_1 <- runif(nrow(landscape_dt), 0, 1) # generate a uniform random number
+      
+      # if the stand is over age 60, and the random number is less than the probability of mortality, the cell dies and age returns to 0. Using 60 to represent mature stands.
+      # setting to zero instead of 1 means that growth will not begin until the next time step. This simulates the fact tht regrowth doesn't start until the outbreak is over. We are assuming the outbreak lasts 20 years (i.e. 1 time step).
+      landscape_dt[new_age > 4 & r_1 < p_mortality, new_age := 0]
+      
+      # delete P columns
+      landscape_dt[,p_mortality:=NULL]
+      landscape_dt[,r_1:=NULL]
     }
+    landscape_dt[[paste0("age_at_year_",yr)]] <- landscape_dt$new_age # name new age column
+    landscape_dt[,old_age:=NULL] # delete temp columns
+    landscape_dt[,new_age:=NULL]
   }
-  write.csv(as.data.frame(landscape_dt), paste0(stand_tables_Dir, "stand_table_",r,".csv"), row.names = FALSE) # save each simulation to it'sown output table
+  write.csv(as.data.frame(landscape_dt), paste0(stand_tables_Dir, "stand_table_",r,".csv"), row.names = FALSE)
 }
       
 
@@ -148,9 +135,9 @@ for(r in 1:reps){
   #############################################
   # aggregate into age classes 1-40, 41-80, 80+
   for(col in colnames(repDf)[which(grepl("age_at_year", names(repDf)))]){
-    repDf[[col]][repDf[[col]]==1 | repDf[[col]]==2] <- 1 # 1-40
-    repDf[[col]][repDf[[col]]==3 | repDf[[col]]==4] <- 2 # 41-80
-    repDf[[col]][repDf[[col]]==5 | repDf[[col]]==6 | repDf[[col]]==7] <- 3 # 80+
+    repDf[[col]][repDf[[col]] %in% c(0,1,2)] <- 1 # 1-40
+    repDf[[col]][repDf[[col]] %in% c(3,4)] <- 2 # 41-80
+    repDf[[col]][repDf[[col]]>4] <- 3 # 80+
   }
   #############################################
   
